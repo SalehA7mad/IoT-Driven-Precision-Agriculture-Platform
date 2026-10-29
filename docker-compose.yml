@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  # ── Local MQTT Broker ──
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    container_name: agri-mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+
+  # ── FastAPI Backend ──
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agri-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file: .env
+    depends_on:
+      - mqtt-broker
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── Streamlit Portal ──
+  portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agri-portal
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    env_file: .env
+    depends_on:
+      - api
+    command: streamlit run portal/app.py --server.port 8501 --server.address 0.0.0.0
+
+  # ── Field Simulator ──
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agri-simulator
+    env_file: .env
+    depends_on:
+      - mqtt-broker
+    command: python -m simulator.simulator
+
+  # ── MQTT Ingestion Consumer ──
+  ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agri-ingestion
+    env_file: .env
+    depends_on:
+      - mqtt-broker
+      - api
+    command: python -m ingestion.mqtt_consumer
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
